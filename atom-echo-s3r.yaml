@@ -10,6 +10,7 @@ substitutions:
   # Micro wake word models
   okay_nabu_model_file: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
   stop_model_file: https://github.com/OHF-Voice/micro-wake-word/releases/download/stop/stop.json
+  hey_frank_model_file: models/hey_frank.json
   hey_amy_model_file: models/hey_amy.json
 
   # Phases of the Voice Assistant
@@ -212,6 +213,8 @@ micro_wake_word:
   microphone: i2s_mic
   stop_after_detection: false
   models:
+    - model: ${hey_frank_model_file}
+      id: hey_frank
     - model: ${hey_amy_model_file}
       id: hey_amy
   on_wake_word_detected:
@@ -499,13 +502,15 @@ select:
       # Sets specific wake word probabilities computed for each particular model
       # Note probability cutoffs are set as a quantized uint8 value, each comment has the corresponding floating point cutoff
       # False Accepts per Hour values are tested against all units and channels from the Dinner Party Corpus.
-      # These cutoffs apply only to the specific models included in the firmware: okay_nabu@20241226.3, hey_jarvis@v2, hey_mycroft@v2
       lambda: |-
         if (x == "Slightly sensitive") {
+          id(hey_frank).set_probability_cutoff(252);    // 0.99 -> 0.937 FAPH
           id(hey_amy).set_probability_cutoff(230);      // 0.90 -> 0.375 FAPH
         } else if (x == "Moderately sensitive") {
+          id(hey_frank).set_probability_cutoff(250);    // 0.98 -> 1.687 FAPH
           id(hey_amy).set_probability_cutoff(212);      // 0.83 -> 0.562 FAPH
         } else if (x == "Very sensitive") {
+          id(hey_frank).set_probability_cutoff(245);    // 0.96 -> 2.000 FAPH
           id(hey_amy).set_probability_cutoff(189);      // 0.74 -> 0.937 FAPH
         }
 

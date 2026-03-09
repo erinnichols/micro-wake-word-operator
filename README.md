@@ -1,8 +1,8 @@
-﻿# hey_frank_training_notebook
+﻿# Custom micro-wake-word models in ESPHome
 
 A Jupyter notebook for training a custom wake word model for **"hey frank"** using the [microWakeWord](https://github.com/kahrendt/microWakeWord) framework, deployable to **M5Stack and other ESP32 devices via ESPHome**.
 
-Also a working ESPHome YAML configuration file for the M5Stack Atom Echo S3R, demonstrating how to upload and use a custom your custom model on-device.  
+Also a working ESPHome YAML configuration file for the M5Stack Atom Echo S3R, demonstrating how to upload and use your custom model on-device.  
 
 [<img src="/media/device_setup_example.jpg" width="400" alt="image of Homeassistant voice assistant setup" />](/media/device_setup_example.jpg)
 ---

@@ -23,6 +23,66 @@ What this notebook adds on top of the original:
 
 ---
 
+## hey frank — Model Training History
+
+### v2 — baseline (no confusables)
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[40, 50]` |
+| `dinner_party` sampling / penalty | 10.0 / 1.5 |
+| `speech` penalty | 2.0 |
+| Confusable negatives | ❌ |
+| Positive samples | Standard text input |
+| `target_minimization` | 0.5 FA/hr |
+| Training phases | `[30000, 20000]` |
+| **Result** | Heavy false positives on similar phrases + ambient |
+
+---
+
+### v3 — confusable negatives added ✅
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[50, 60]` |
+| `dinner_party` sampling / penalty | 10.0 / 2.0 |
+| `speech` penalty | 2.5 |
+| Confusable negatives | ✅ 13 phrases, sampling 8.0, penalty 5.0 |
+| Positive samples | IPA phoneme input `hˈeɪ fɹˈæŋk˺` |
+| `target_minimization` | 0.3 FA/hr |
+| Training phases | `[20000, 15000, 10000]` |
+| **Result** | **0.414 FA/hr, 97% recall — no confusable triggers, strong ambient robustness** |
+
+---
+
+### v4 — overcorrected ambient penalty
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[60, 75]` ← too aggressive |
+| `dinner_party` sampling / penalty | 15.0 / 3.0 ← boosted |
+| `speech` penalty | 2.5 |
+| Confusable negatives | ✅ same as v3 |
+| Positive samples | IPA phoneme input `hˈeɪ fɹˈæŋk˺` |
+| `target_minimization` | 0.3 FA/hr |
+| Training phases | `[25000, 20000]` |
+| **Result** | 0.620 FA/hr, 94.5% recall — worse than v3 on both metrics |
+
+---
+
+### v5 — queued
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[50, 60]` ← back to v3 |
+| `dinner_party` sampling / penalty | 15.0 / 3.0 ← keeping boost |
+| `speech` penalty | 2.5 |
+| Confusable negatives | ✅ same as v3 |
+| AudioSet clips | 5000 ← expanded from 2000 |
+| Training phases | `[25000, 20000]` |
+| **Goal** | Beat v3's 0.414 FA/hr while keeping recall above 96% |
+
+
 ## Environment
 
 This notebook is designed to run in two environments depending on the cell:
@@ -40,6 +100,52 @@ This notebook is designed to run in two environments depending on the cell:
 - WSL2 default memory cap is 16 GB — if you have 32 GB RAM, set `memory=28GB` in `%USERPROFILE%\.wslconfig`
 
 ---
+
+
+## microWakeWord — Local Modifications
+
+Three files in the `microWakeWord/` submodule have been modified from upstream.
+These changes are required to run on Windows (WSL2) and with NumPy 2.0+.  
+After cloning the microWakeWord repo, copy and replace the three files included in this repo.  
+
+---
+
+### `microwakeword/audio/clips.py`
+**Problem:** HuggingFace `datasets` uses `torchcodec` for audio decoding by default,
+which has no Windows wheel and fails in WSL2.
+
+**Fix:** Switched to `decode=False` + manual decoding via `soundfile` and `librosa`.
+- Added `import io`, `import soundfile as sf`
+- Changed `datasets.Audio()` → `datasets.Audio(decode=False)`
+- Added `_decode_audio(audio_info, target_sr)` method that decodes manually,
+  handles stereo→mono, and resamples if needed
+- All `clip["audio"]["array"]` accesses replaced with `self._decode_audio(clip["audio"])`
+
+> **Note:** This change is safe to run on Colab/Linux too — soundfile works everywhere.
+
+---
+
+### `microwakeword/test.py`
+**Problem:** NumPy 2.0 renamed `np.trapz` → `np.trapezoid`. Calling `np.trapz` raises
+a deprecation warning or error depending on version.
+
+**Fix:** Added compatibility shim:
+```python
+_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+```
+
+---
+
+### `microwakeword/train.py`
+**Problem 1:** Same `np.trapz` → `np.trapezoid` rename as above.
+
+**Fix:** Same compatibility shim applied in `validate_nonstreaming`.
+
+**Problem 2:** `.numpy()` calls on metric values failed when values were plain
+Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior).
+
+**Fix:** Added `hasattr(x, "numpy")` guards before all `.numpy()` calls on
+`fp`, `tp`, `fn` metric values in `validate_nonstreaming`.
 
 ## Quick Start
 

@@ -10,7 +10,7 @@ substitutions:
   # Micro wake word models
   okay_nabu_model_file: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
   stop_model_file: https://github.com/OHF-Voice/micro-wake-word/releases/download/stop/stop.json
-  hey_frank_model_file: models/hey_frank.json
+  hey_frank_model_file: models/hey_frank_v3.json
   hey_amy_model_file: models/hey_amy.json
 
   # Phases of the Voice Assistant
@@ -504,13 +504,13 @@ select:
       # False Accepts per Hour values are tested against all units and channels from the Dinner Party Corpus.
       lambda: |-
         if (x == "Slightly sensitive") {
-          id(hey_frank).set_probability_cutoff(252);    // 0.99 -> 0.937 FAPH
+          id(hey_frank).set_probability_cutoff(237);    // 0.93 -> 0.187 FAPH
           id(hey_amy).set_probability_cutoff(230);      // 0.90 -> 0.375 FAPH
         } else if (x == "Moderately sensitive") {
-          id(hey_frank).set_probability_cutoff(250);    // 0.98 -> 1.687 FAPH
+          id(hey_frank).set_probability_cutoff(230);    // 0.90 -> 0.562 FAPH
           id(hey_amy).set_probability_cutoff(212);      // 0.83 -> 0.562 FAPH
         } else if (x == "Very sensitive") {
-          id(hey_frank).set_probability_cutoff(245);    // 0.96 -> 2.000 FAPH
+          id(hey_frank).set_probability_cutoff(145);    // 0.57 -> 0.937 FAPH
           id(hey_amy).set_probability_cutoff(189);      // 0.74 -> 0.937 FAPH
         }
 

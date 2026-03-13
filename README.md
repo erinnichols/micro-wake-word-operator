@@ -139,7 +139,11 @@ Clones the [microWakeWord](https://github.com/kahrendt/microWakeWord) repo and i
 
 Sets up your wake word constants and generates **one sample WAV** so you can verify pronunciation before committing to a full run.
 
-> **Tip:** Edit `target_word` at the top of this cell. If the preview audio sounds unclear or unnatural, try a phonetic spelling (e.g. `'hey fraenk'` or `'hey frahnk'`).
+This notebook is configured to use `--phoneme-input` with the IPA string `"hˈeɪ fɹˈæŋk˺"` rather than plain text. Piper generates very short clips, and in short clips the final hard-K in "frank" can get dropped or softened by the TTS model. When that happens across thousands of samples, the model learns to trigger on "hey fran" nearly as readily as "hey frank" — producing a lot of false positives on similar phrases. The `˺` (no-audible-release) marker in the IPA string forces piper to consistently close the /k/, giving the model a clean signal to train on.
+
+To use plain text instead, set `target_word = "hey frank"` and remove the `--phoneme-input` flag from the piper command. This works fine for many wake words, but be cautious with words that end in a hard stop consonant (k, t, p) — piper can drop or soften them in short clips, and that distortion will bake into your training data.
+
+> **Tip:** Edit `target_word` at the top of this cell. If the preview audio sounds unclear or unnatural, try a phonetic spelling first (e.g. `'hey fraenk'`) to identify the issue, then translate to IPA.
 >
 > **Note:** This cell and Cells 3–4 should be run in Google Colab because `piper-tts` does not have a stable Windows/WSL2 wheel. Run them in Colab, then download the output folders and copy them to your WSL2 working directory.
 

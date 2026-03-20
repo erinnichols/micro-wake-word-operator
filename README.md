@@ -442,17 +442,56 @@ Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior)
 
 ---
 
-### v5 — queued
+### v5 — refined weights + expanded dataset ✅ deployed
 
 | Parameter | Value |
 |---|---|
-| `negative_class_weight` | `[50, 60]` ← back to v3 |
-| `dinner_party` sampling / penalty | 15.0 / 3.0 ← keeping boost |
+| `negative_class_weight` | `[50, 60]` ← reverted from v4 |
+| `positive_class_weight` | `[2, 2]` ← raised from v3's `[1, 1]` |
+| `dinner_party` sampling / penalty | 15.0 / 3.0 ← keeping v4 boost |
 | `speech` penalty | 2.5 |
-| Confusable negatives | ✅ same as v3 |
-| AudioSet clips | 5000 ← expanded from 2000 |
+| Confusable negatives | ✅ 13 phrases, sampling 8.0, penalty 5.0 |
+| Positive samples | IPA `hˈeɪ fɹˈæŋk˺`, sampling 8.0, penalty 2.0 |
+| AudioSet clips | 18,683 (full balanced set) |
+| `target_minimization` | 0.4 FA/hr ← relaxed from v3's 0.3 |
 | Training phases | `[25000, 20000]` |
-| **Goal** | Beat v3's 0.414 FA/hr while keeping recall above 96% |
+| **Result** | **0.103 FA/hr best min, 97.58% recall — best hey frank result** |
+
+---
+
+## hey m5 — Model Training History
+
+### v1 — initial model ✅ deployed
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[40, 50]` |
+| `positive_class_weight` | `[2, 2]` |
+| `dinner_party` sampling / penalty | 15.0 / 3.0 |
+| `speech` penalty | 2.5 |
+| Confusable negatives | ✅ 5 phrases — hey em, hey five, em five, hey emma, hey emily |
+| Confusable sampling / penalty | 8.0 / 5.0 |
+| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k samples |
+| `target_minimization` | 0.4 FA/hr |
+| Training phases | `[25000, 20000]` |
+| **Result** | **0.187 FA/hr @ cutoff 0.33 / 0.375 FA/hr @ cutoff 0.18, 98.4% recall — false triggers on "hey emma hi", "hey i'm tired"** |
+
+---
+
+### v2 — expanded confusables ⚠️ overcorrected
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[40, 50]` |
+| `positive_class_weight` | `[2, 2]` |
+| `dinner_party` sampling / penalty | 15.0 / 3.0 |
+| `speech` penalty | 2.5 |
+| Confusable negatives | ✅ 11 phrases ← added hey emma hi, hey emily hi, hey i'm tired, hey i'm fired, i'm fired |
+| Confusable sampling / penalty | 8.0 / 5.0 |
+| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k samples |
+| `target_minimization` | 0.4 FA/hr |
+| Training phases | `[25000, 20000]` |
+| **Result** | 0.187 FA/hr @ cutoff 0.58, **92.7% recall** — ~5% recall loss vs v1 at every operating point; i'm tired/fired confusables too phonetically close to positive |
 
 ---
 

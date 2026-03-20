@@ -11,7 +11,11 @@ substitutions:
   okay_nabu_model_file: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
   stop_model_file: https://github.com/OHF-Voice/micro-wake-word/releases/download/stop/stop.json
   hey_frank_model_file: models/hey_frank_v3.json
+  hey_frank_v4_model_file: models/hey_frank_v4.json
+  hey_frank_v5_model_file: models/hey_frank_v5.json
   hey_amy_model_file: models/hey_amy.json
+  hey_m5_v1_model_file: models/hey_m5_v1.json
+  hey_m5_v2_model_file: models/hey_m5_v2.json
 
   # Phases of the Voice Assistant
   # The voice assistant is ready to be triggered by a wake word
@@ -215,8 +219,16 @@ micro_wake_word:
   models:
     - model: ${hey_frank_model_file}
       id: hey_frank
+    - model: ${hey_frank_v4_model_file}
+      id: hey_frank_v4
+    - model: ${hey_frank_v5_model_file}
+      id: hey_frank_v5
     - model: ${hey_amy_model_file}
       id: hey_amy
+    - model: ${hey_m5_v1_model_file}
+      id: hey_m5_v1
+    - model: ${hey_m5_v2_model_file}
+      id: hey_m5_v2
   on_wake_word_detected:
     - script.execute:
         id: play_sound
@@ -504,15 +516,29 @@ select:
       # False Accepts per Hour values are tested against all units and channels from the Dinner Party Corpus.
       lambda: |-
         if (x == "Slightly sensitive") {
-          id(hey_frank).set_probability_cutoff(237);    // 0.93 -> 0.187 FAPH
-          id(hey_amy).set_probability_cutoff(230);      // 0.90 -> 0.375 FAPH
+          id(hey_frank).set_probability_cutoff(237);      // v3: 0.93 -> 0.187 FAPH
+          id(hey_frank_v4).set_probability_cutoff(247);   // v4: 0.97 -> 0.187 FAPH
+          id(hey_frank_v5).set_probability_cutoff(217);   // v5: 0.85 -> 0.187 FAPH
+          id(hey_amy).set_probability_cutoff(230);        // 0.90 -> 0.375 FAPH
+          id(hey_m5_v1).set_probability_cutoff(84);       // 0.33 -> 0.187 FAPH
+          id(hey_m5_v2).set_probability_cutoff(148);      // 0.58 -> 0.187 FAPH
         } else if (x == "Moderately sensitive") {
-          id(hey_frank).set_probability_cutoff(230);    // 0.90 -> 0.562 FAPH
-          id(hey_amy).set_probability_cutoff(212);      // 0.83 -> 0.562 FAPH
+          id(hey_frank).set_probability_cutoff(230);      // v3: 0.90 -> 0.562 FAPH
+          id(hey_frank_v4).set_probability_cutoff(161);   // v4: 0.63 -> 0.375 FAPH
+          id(hey_frank_v5).set_probability_cutoff(191);   // v5: 0.75 -> 0.375 FAPH
+          id(hey_amy).set_probability_cutoff(212);        // 0.83 -> 0.562 FAPH
+          id(hey_m5_v1).set_probability_cutoff(46);       // 0.18 -> 0.375 FAPH
+          id(hey_m5_v2).set_probability_cutoff(120);      // 0.47 -> 0.375 FAPH
         } else if (x == "Very sensitive") {
-          id(hey_frank).set_probability_cutoff(145);    // 0.57 -> 0.937 FAPH
-          id(hey_amy).set_probability_cutoff(189);      // 0.74 -> 0.937 FAPH
+          id(hey_frank).set_probability_cutoff(145);      // v3: 0.57 -> 0.937 FAPH
+          id(hey_frank_v4).set_probability_cutoff(138);   // v4: 0.54 -> 0.937 FAPH
+          id(hey_frank_v5).set_probability_cutoff(145);   // v5: 0.57 -> 0.937 FAPH
+          id(hey_amy).set_probability_cutoff(189);        // 0.74 -> 0.937 FAPH
+          id(hey_m5_v1).set_probability_cutoff(26);       // 0.10 -> 1.125 FAPH
+          id(hey_m5_v2).set_probability_cutoff(64);       // 0.25 -> 0.937 FAPH
         }
+
+
 
 globals:
   - id: init_in_progress

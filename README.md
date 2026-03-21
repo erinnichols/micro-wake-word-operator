@@ -6,11 +6,13 @@ A fork of the [microWakeWord basic training notebook](https://github.com/kahrend
 
 ### What's different from the original notebook
 
-- **Confusable negative generation** — TTS clips of phonetically similar phrases ("hey fran", "hey finn", etc.) trained as high-penalty hard negatives to reduce false triggers on near-misses
+- **Confusable negative generation** — TTS clips of phonetically similar phrases trained as high-penalty hard negatives to reduce false triggers on near-misses
+- **Real microphone recording** — batch recording sessions via WSL2 PulseAudio capture real voice samples; new cells handle mic testing, 100-clip rapid-fire recording, and feature generation
+- **piper-sample-generator package** — updated to use the current `piper-sample-generator` Python package (`python -m piper_sample_generator`); the old `generate_samples.py` script is no longer in the upstream repo
+- **v2 ESPHome manifest schema** — generates `hey_frank.json` with the full v2 schema fields; v2 delivers better detection and fewer false positives than v1
 - **Split Colab / local workflow** — sample generation runs on Colab (piper-tts has no WSL2 wheel); augmentation and training run locally on your GPU
 - **WSL2 compatibility fixes** — soundfile-based audio decoding (replaces torchcodec), NumPy 2.0 shims, and RTX 5000 / Blackwell GPU workarounds
 - **IPA phoneme input** — `"hˈeɪ fɹˈæŋk˺"` for consistent hard-K pronunciation across all TTS voices
-- **ESPHome manifest output** — generates `hey_frank.json` ready to drop into your ESPHome config
 - **Quality-of-life** — skip guards on all heavy steps, augmented clip preview cells, and tuned hyperparameters documented in the training history
 
 ### Repo contents
@@ -18,8 +20,10 @@ A fork of the [microWakeWord basic training notebook](https://github.com/kahrend
 | File / Directory | Description |
 |---|---|
 | `hey_frank_training_notebook.ipynb` | Main training notebook |
-| `atom-echo-s3r.yaml` | ESPHome config for M5Stack Atom Echo S3R |
-| `models/` | Pre-trained hey_frank v3 and v4 `.tflite` models + ESPHome manifests |
+| `atom-echo-s3r.yaml` | ESPHome config for M5Stack Atom Echo S3R (basic voice assistant) |
+| `echo-pyramid.yaml` | ESPHome config for M5Stack Echo Pyramid + Atom S3R — custom RGB LED animations per assistant state (idle/listening/thinking/replying/error/muted), custom PNG images on the 128×128 display, includes hey_frank and hey_m5 models, selectable wake word sensitivity, touch gestures for volume and brightness |
+| `media/` | Custom 128×128 PNG assistant state images used by `echo-pyramid.yaml` |
+| `models/` | Pre-trained hey_frank and hey_m5 `.tflite` models + v2 ESPHome manifests |
 | `microWakeWord/microwakeword/` | Three patched upstream files (see [Attribution](#attribution-and-authorship)) |
 
 ### Table of Contents
@@ -40,7 +44,7 @@ This notebook is designed to run in two environments depending on the cell:
 
 | Cells | Environment | Why |
 |---|---|---|
-| 1, 5–14 | **WSL2 on Windows** with an NVIDIA GPU | TensorFlow GPU support requires Linux; WSL2 gives you a Linux environment on Windows |
+| 1, 5–18 | **WSL2 on Windows** with an NVIDIA GPU | TensorFlow GPU support requires Linux; WSL2 gives you a Linux environment on Windows |
 | 2–4 | **Google Colab** (or any Linux GPU) | `piper-tts` and `piper-phonemize` have no stable Windows/WSL2 wheel |
 
 ### WSL2 Setup Notes
@@ -99,13 +103,15 @@ See [Attribution and Authorship](#attribution-and-authorship) below for details 
 
 1. Run **Cell 1** in Jupyter (in WSL2), restart the kernel
 2. Run **Cells 2–4** in **Google Colab** (sample generation):
-   - Cell 2: verify pronunciation
+   - Cell 2: install piper-sample-generator, verify pronunciation
    - Cell 3: generate full positive sample set
    - Cell 4: generate confusable negative samples
 3. Download `generated_samples/` and `confusable_negatives/` from Colab and place them in your WSL2 working directory
-4. Run **Cells 5–12** in Jupyter (in WSL2) to download data and write the training config
-5. Run **Cell 13** training via the **CLI** (recommended — see cell notes)
-6. Run **Cell 14** to locate your `.tflite` and write the ESPHome manifest
+4. Run **Cells 5–9** in Jupyter (in WSL2) to download data, configure augmentation, and generate TTS spectrogram features
+5. *(Optional)* Run **Cells 10–12** to test your mic, record real voice samples in bulk, and generate their features
+6. Run **Cells 13–15** to generate confusable features and write the training config
+7. Run **Cell 16** training via the **CLI** (recommended — see cell notes)
+8. Run **Cell 17** to locate your `.tflite` and write the ESPHome manifest
 
 ---
 
@@ -120,7 +126,7 @@ Markdown cell. Summarizes the key configurable parameters in one table so you do
 | `target_word` | `"hˈeɪ fɹˈæŋk˺"` | IPA phoneme input — forces consistent hard K |
 | `MAX_SAMPLES` | `50_000` | Reduce to `25_000` if disk space is tight |
 | `PIPER_BATCH` | `256` | Reduce to `128` if you get CUDA OOM during sample generation |
-| `CONFUSABLE_SAMPLES_PER_PHRASE` | `2000` | ~26k total across 13 phrases |
+| `CONFUSABLE_SAMPLES_PER_PHRASE` | `2000` | Adjust based on disk space and desired data volume |
 | `batch_size` (YAML) | `256` | Reduce to `128` if you get OOM during training |
 | Training steps | `[20000, 15000, 10000]` | Use `[5000]` for a quick sanity-check run |
 | `target_minimization` | `0.3` FA/hr | Lower = stricter false accept control |
@@ -135,23 +141,25 @@ Clones the [microWakeWord](https://github.com/kahrendt/microWakeWord) repo and i
 
 ---
 
-### Cell 2 — Wake Word Config + Single Preview Sample *(run in Google Colab)*
+### Cell 2 — Install piper-sample-generator + Single Preview Sample *(run in Google Colab)*
 
-Sets up your wake word constants and generates **one sample WAV** so you can verify pronunciation before committing to a full run.
+Installs all TTS sample generation dependencies: `piper-tts`, `piper-sample-generator` (as a Python package), and the `monotonic_align` C extension built from the Piper source repo. Then generates **one sample WAV** to verify pronunciation before committing to a full run.
 
-This notebook is configured to use `--phoneme-input` with the IPA string `"hˈeɪ fɹˈæŋk˺"` rather than plain text. Piper generates very short clips, and in short clips the final hard-K in "frank" can get dropped or softened by the TTS model. When that happens across thousands of samples, the model learns to trigger on "hey fran" nearly as readily as "hey frank" — producing a lot of false positives on similar phrases. The `˺` (no-audible-release) marker in the IPA string forces piper to consistently close the /k/, giving the model a clean signal to train on.
+The generator is invoked as `python -m piper_sample_generator` — the old `generate_samples.py` script is no longer included in the upstream repo.
 
-To use plain text instead, set `target_word = "hey frank"` and remove the `--phoneme-input` flag from the piper command. This works fine for many wake words, but be cautious with words that end in a hard stop consonant (k, t, p) — piper can drop or soften them in short clips, and that distortion will bake into your training data.
+This notebook uses `--phoneme-input` with the IPA string `"hˈeɪ fɹˈæŋk˺"` rather than plain text. The `˺` (no-audible-release) marker forces piper to consistently close the final /k/, preventing the model from learning to trigger on "hey fran" nearly as readily as "hey frank". Without it, the hard K can be dropped or softened across thousands of short clips, and that distortion bakes into your training data.
 
-> **Tip:** Edit `target_word` at the top of this cell. If the preview audio sounds unclear or unnatural, try a phonetic spelling first (e.g. `'hey fraenk'`) to identify the issue, then translate to IPA.
+To use plain text instead, set `target_word = "hey frank"` and remove the `--phoneme-input` flag. Be cautious with words ending in hard stops (k, t, p) — piper can drop or soften them in short clips.
+
+> **Tip:** Edit `target_word` at the top of this cell. If the preview sounds unclear or unnatural, try a phonetic spelling first (e.g. `'hey fraenk'`) to diagnose the issue, then translate to IPA.
 >
-> **Note:** This cell and Cells 3–4 should be run in Google Colab because `piper-tts` does not have a stable Windows/WSL2 wheel. Run them in Colab, then download the output folders and copy them to your WSL2 working directory.
+> **Note:** Run Cells 2–4 in Google Colab — `piper-tts` does not have a stable WSL2 wheel. Download the output folders and copy them to your WSL2 working directory.
 
 ---
 
 ### Cell 3 — Generate Full Training Sample Set *(run in Google Colab)*
 
-Generates `MAX_SAMPLES` (default 50,000) TTS voice clips of your wake word using the libritts multi-speaker model. More speaker variety = more robust model.
+Generates `MAX_SAMPLES` (default 50,000) TTS voice clips using the libritts multi-speaker model. More speaker variety = more robust model.
 
 Approximate times on a Colab T4:
 - 10k samples: ~5 min
@@ -166,9 +174,9 @@ Approximate times on a Colab T4:
 
 ### Cell 4 — Generate Confusable Negative Samples *(run in Google Colab)*
 
-Generates TTS clips of phonetically-similar phrases that must **not** trigger "hey frank" — e.g. `"hey fran"`, `"hey finn"`, `"frank"`, `"hey france"`. These become high-penalty hard negatives during training, teaching the model to discriminate fine-grained phonetic differences.
+Generates TTS clips of phonetically similar phrases that must **not** trigger your wake word. These become high-penalty hard negatives during training, teaching the model to discriminate fine-grained phonetic differences.
 
-13 confusable phrases × `CONFUSABLE_SAMPLES_PER_PHRASE` (default 2,000) = ~26k total clips in `confusable_negatives/`.
+Edit `confusable_phrases` for your specific wake word. Uses plain text (no `--phoneme-input`) so piper generates natural variation in how similar-sounding words are pronounced.
 
 > **Note:** Download `confusable_negatives/` from Colab and copy it to your WSL2 working directory alongside `generated_samples/`.
 
@@ -212,7 +220,7 @@ Tuned settings vs. the original notebook:
 - `GainTransition` added at `p=0.25` — simulates volume changes over time
 - Stronger `AddBackgroundNoise` (`p=0.85`) and `RIR` (`p=0.60`)
 
-> **Tip:** If the augmented preview (Cell 9) sounds completely unintelligible, raise `background_min_snr_db` toward `0` or lower `AddBackgroundNoise` probability.
+> **Tip:** If augmented previews sound completely unintelligible, raise `background_min_snr_db` toward `0` or lower `AddBackgroundNoise` probability.
 
 ---
 
@@ -226,7 +234,7 @@ Converts all augmented positive clips into 40-band spectrogram features — the 
 | validation | 10 | 1 | Single augmented version |
 | testing | 1 | 1 | Simulates real streaming inference |
 
-Existing splits are skipped automatically. If a partial mmap is detected it's cleaned up and regenerated.
+Existing splits are skipped automatically. Partial mmaps are detected, cleaned up, and regenerated.
 
 > **Tip:** At 50k samples on a GPU this takes roughly 20–40 minutes. Don't close Jupyter during this step.
 
@@ -238,7 +246,36 @@ Augments one random clip and plays it back. Run this a few times for variety. Yo
 
 ---
 
-### Cell 10 — Generate Spectrogram Features (Confusable Negatives) *(run in WSL2)*
+### Cell 10 — Test Microphone *(run in WSL2)*
+
+Records a single 2-second clip from your microphone and plays it back. Run this before bulk recording (Cell 11) to verify your mic is working and that the audio level and timing feel right.
+
+Uses WSL2's PulseAudio bridge (`/mnt/wslg/PulseServer`) for mic access. Lists available audio devices so you can set `DEVICE` if the default doesn't work.
+
+---
+
+### Cell 11 — Record Real Voice Samples *(run in WSL2)*
+
+Rapid-fire batch recording session that runs `N_RECORDINGS` (default 100) back-to-back cycles of:
+- **3-second countdown** with on-screen prompt
+- **2-second recording window** ("SPEAK NOW")
+- Brief gap before the next clip
+
+Keeps a single mic stream open for the whole session to avoid PulseAudio re-acquire failures. Clips are saved to `real_recordings/` with a session timestamp. Review and delete bad takes before running Cell 12.
+
+> **Tip:** Aim for 100–200 clips minimum. Vary your delivery: distance from mic, speaking speed, room, ambient noise level. Real recordings substantially improve real-world robustness vs. TTS-only training.
+
+---
+
+### Cell 12 — Generate Spectrogram Features (Real Recordings) *(run in WSL2)*
+
+Converts `real_recordings/` into spectrogram mmaps using the same augmentation pipeline as Cell 8. Real clips are short, so the training split uses `repetition=5` to boost the training set size.
+
+Idempotent — already-generated splits are skipped automatically.
+
+---
+
+### Cell 13 — Generate Spectrogram Features (Confusable Negatives) *(run in WSL2)*
 
 Runs the same augmentation and spectrogram pipeline on `confusable_negatives/`, outputting to `confusable_features/`. These are used as high-penalty negatives during training.
 
@@ -246,39 +283,40 @@ Idempotent — already-generated splits are skipped automatically.
 
 ---
 
-### Cell 11 — Preview Augmented Confusable Sample *(run in WSL2)*
+### Cell 14 — Preview Augmented Confusable Sample *(run in WSL2)*
 
 Spot-checks the confusable negative pipeline. You should hear something like "hey fran" or "hey finn" — clearly **not** "hey frank". If a clip sounds identical to the wake word, that phrase may need rephrasing.
 
 ---
 
-### Cell 12 — Write Training Configuration YAML *(run in WSL2)*
+### Cell 15 — Write Training Configuration YAML *(run in WSL2)*
 
-Writes `training_parameters.yaml` with all training hyperparameters.
+Writes `training_parameters.yaml`. Automatically detects whether `confusable_features/` and `real_recording_features/` exist and includes them in the config only if present.
 
 Key parameters to know:
 
 | Parameter | Value | Notes |
 |---|---|---|
 | `training_steps` | `[25000, 20000]` | 45k total; use `[5000]` for a quick test |
-| `negative_class_weight` | `[50, 60]` | **Most impactful knob for false accepts** — increase if too many FAs |
+| `negative_class_weight` | `[40, 50]` | **Most impactful knob for false accepts** — increase if too many FAs |
 | `batch_size` | `256` | Tuned for 12 GB VRAM — reduce to `128` if OOM |
 | `minimization_metric` | `ambient_false_positives_per_hour` | Trainer must beat `target_minimization` before maximizing recall |
-| `target_minimization` | `0.3` | Acceptable false accepts per hour |
+| `target_minimization` | `0.4` | Acceptable false accepts per hour |
 
-Batch composition (approximate share per training batch):
+Batch composition (when real recordings and confusables are both present):
 
 | Dataset | Weight | Notes |
 |---|---|---|
-| Positives (`generated_augmented_features`) | 6.0 | ~13% |
-| `speech` | 10.0 | ~21% |
-| `dinner_party` | 15.0 | ~32% — primary source of TV/ambient FAs |
-| `no_speech` | 5.0 | ~11% |
-| Confusables (`confusable_features`) | 8.0 | ~17% — high penalty (5.0) |
+| TTS positives (`generated_augmented_features`) | 8.0 | ~15% |
+| Real recordings (`real_recording_features`) | 8.0 | ~15% — omitted if not present |
+| `speech` | 10.0 | ~19% |
+| `dinner_party` | 15.0 | ~28% — primary source of TV/ambient FAs |
+| `no_speech` | 5.0 | ~9% |
+| Confusables (`confusable_features`) | 8.0 | ~15% — high penalty (5.0); omitted if not present |
 
 ---
 
-### Cell 13 — Train the Model *(run in WSL2)*
+### Cell 16 — Train the Model *(run in WSL2)*
 
 Launches the training run.
 
@@ -320,18 +358,43 @@ Watch the `estimated false positives per hour` metric at each 500-step validatio
 
 ---
 
-### Cell 14 — Locate Model + Write ESPHome Manifest *(run in WSL2)*
+### Cell 17 — Locate Model + Write ESPHome Manifest *(run in WSL2)*
 
 After training completes, this cell:
 1. Finds the quantized streaming `.tflite` model at `trained_models/hey_frank/tflite_stream_state_internal_quant/`
 2. Reports the file size
-3. Writes a starter `hey_frank.json` ESPHome manifest
+3. Writes `hey_frank.json` using the **v2 ESPHome manifest schema**
 
-> **Tip:** Set `probability_cutoff` in the manifest based on the cutoff table printed at the end of training. A value around `0.80–0.90` is typical — higher = more confident threshold required to trigger, so fewer false accepts but potentially lower recall.
+The v2 schema adds fields that improve detection reliability compared to v1:
+
+```json
+{
+  "version": 2,
+  "micro": {
+    "probability_cutoff": 0.50,
+    "feature_step_size": 10,
+    "sliding_window_size": 5,
+    "tensor_arena_size": 30000,
+    "minimum_esphome_version": "2024.7.0"
+  }
+}
+```
+
+> **Tip:** Set `probability_cutoff` based on the cutoff table printed at the end of training. A value around `0.80–0.90` is typical — higher = more confident threshold required to trigger, so fewer false accepts but potentially lower recall.
 
 Copy both `hey_frank.tflite` and `hey_frank.json` to your ESPHome configuration directory.
 
 See: [ESPHome micro_wake_word docs](https://esphome.io/components/micro_wake_word) | [Model repo examples](https://github.com/esphome/micro-wake-word-models/tree/main/models/v2)
+
+---
+
+### Cell 18 — Visualize Training Metrics with TensorBoard *(run in WSL2)*
+
+Launches TensorBoard for the most recently trained model's logs directory. Can be run mid-training to monitor live progress — logs are written incrementally.
+
+Open `http://localhost:6006` in your browser. The `ambient_false_positives_per_hour` curve under SCALARS shows convergence most clearly.
+
+Interrupt the cell to stop the TensorBoard server.
 
 ---
 
@@ -346,6 +409,7 @@ What this notebook adds on top of the original:
 - Practical improvements for running on a **local Windows PC with an NVIDIA GPU via WSL2**
 - Windows/Linux compatibility fixes (see below)
 - Confusable negative sample generation pipeline
+- Real microphone recording and feature generation pipeline
 - Tuned hyperparameters for better false-accept behavior
 - Quality-of-life additions: skip guards, error handling, ESPHome manifest output
 - Updated addresses and download methods for augmentation resources and negative datasets where needed
@@ -515,7 +579,6 @@ Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior)
 | **ESPHome cutoffs** | Slightly sensitive = 110 (0.187 FA/hr), Moderately = 74 (0.375 FA/hr), Very = 18 (0.750 FA/hr) |
 
 ---
-
 
 ## License / Data Notice
 

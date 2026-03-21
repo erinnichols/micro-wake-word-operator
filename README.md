@@ -459,9 +459,9 @@ Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior)
 
 ---
 
-## hey m5 — Model Training History
+## Training History (hey_m5)
 
-### v1 — initial model ✅ deployed
+### hey_m5_v1 — initial model
 
 | Parameter | Value |
 |---|---|
@@ -471,14 +471,15 @@ Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior)
 | `speech` penalty | 2.5 |
 | Confusable negatives | ✅ 5 phrases — hey em, hey five, em five, hey emma, hey emily |
 | Confusable sampling / penalty | 8.0 / 5.0 |
-| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k samples |
+| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k TTS |
 | `target_minimization` | 0.4 FA/hr |
 | Training phases | `[25000, 20000]` |
-| **Result** | **0.187 FA/hr @ cutoff 0.33 / 0.375 FA/hr @ cutoff 0.18, 98.4% recall — false triggers on "hey emma hi", "hey i'm tired"** |
+| **Result** | **0.000 FA/hr @ 97.1% recall (cutoff 0.62 / uint8 158), 0.187 FA/hr @ 97.9% recall (cutoff 0.33 / uint8 84), 0.375 FA/hr @ 98.4% recall (cutoff 0.18 / uint8 46) — false triggers on "hey emma hi", "hey i'm tired"** |
+| **ESPHome cutoffs** | Slightly sensitive = 84 (0.187 FA/hr), Moderately = 46 (0.375 FA/hr), Very = 26 |
 
 ---
 
-### v2 — expanded confusables ⚠️ overcorrected
+### hey_m5_v2 — expanded confusables ⚠️ overcorrected
 
 | Parameter | Value |
 |---|---|
@@ -486,14 +487,35 @@ Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior)
 | `positive_class_weight` | `[2, 2]` |
 | `dinner_party` sampling / penalty | 15.0 / 3.0 |
 | `speech` penalty | 2.5 |
-| Confusable negatives | ✅ 11 phrases ← added hey emma hi, hey emily hi, hey i'm tired, hey i'm fired, i'm fired |
+| Confusable negatives | ✅ 10 phrases — v1 set + hey emma hi, hey emily hi, hey i'm tired, hey i'm fired, i'm fired |
 | Confusable sampling / penalty | 8.0 / 5.0 |
-| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k samples |
+| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k TTS |
 | `target_minimization` | 0.4 FA/hr |
 | Training phases | `[25000, 20000]` |
-| **Result** | 0.187 FA/hr @ cutoff 0.58, **92.7% recall** — ~5% recall loss vs v1 at every operating point; i'm tired/fired confusables too phonetically close to positive |
+| **Result** | **0.187 FA/hr @ 92.7% recall (cutoff 0.58 / uint8 148) — ~5% recall loss vs v1 at every operating point; i'm tired/fired confusables too phonetically close to positive** |
+| **ESPHome cutoffs** | Slightly sensitive = 148 (0.187 FA/hr), Moderately = 120 (0.375 FA/hr), Very = 64 (0.750 FA/hr) |
 
 ---
+
+### hey_m5_v3 — trimmed confusables + real recordings
+
+| Parameter | Value |
+|---|---|
+| `negative_class_weight` | `[40, 50]` |
+| `positive_class_weight` | `[2, 2]` |
+| `dinner_party` sampling / penalty | 15.0 / 3.0 |
+| `speech` penalty | 2.5 |
+| Confusable negatives | ✅ 8 phrases ← dropped hey i'm tired, hey i'm fired, hey emma hi; kept hey emily hi, hey i'm, i'm fired |
+| Confusable sampling / penalty | 8.0 / 5.0 |
+| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k TTS + 217 real recordings |
+| Real recordings sampling / penalty | 8.0 / 2.0 |
+| `target_minimization` | 0.4 FA/hr |
+| Training phases | `[25000, 20000]` |
+| **Result** | **Best: 0.000 FA/hr @ 97.81% recall (validation). Test: 0.000 FA/hr @ 94.8% recall (cutoff 0.47 / uint8 120), 0.187 FA/hr @ 95.0% recall (cutoff 0.43 / uint8 110), 0.375 FA/hr @ 95.8% recall (cutoff 0.29 / uint8 74), 0.750 FA/hr @ 97.1% recall (cutoff 0.07 / uint8 18)** |
+| **ESPHome cutoffs** | Slightly sensitive = 110 (0.187 FA/hr), Moderately = 74 (0.375 FA/hr), Very = 18 (0.750 FA/hr) |
+
+---
+
 
 ## License / Data Notice
 

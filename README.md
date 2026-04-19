@@ -1,587 +1,119 @@
-# Custom micro-wake-word models in ESPHome
+# micro-wake-word-operator
 
-A fork of the [microWakeWord basic training notebook](https://github.com/kahrendt/microWakeWord/blob/main/notebooks/basic_training_notebook.ipynb), adapted for local training on a **Windows PC with an NVIDIA GPU via WSL2** and tuned for the wake word **"hey frank"**.
+A custom [microWakeWord](https://github.com/OHF-Voice/micro-wake-word) model for the wake word **"operator"**, trained for use with [ESPHome](https://esphome.io/components/micro_wake_word/) voice satellites.
 
-[<img src="/media/device_setup_example.jpg" width="400" alt="image of Homeassistant voice assistant setup" />](/media/device_setup_example.jpg)
-
-### What's different from the original notebook
-
-- **Confusable negative generation** — TTS clips of phonetically similar phrases trained as high-penalty hard negatives to reduce false triggers on near-misses
-- **Real microphone recording** — batch recording sessions via WSL2 PulseAudio capture real voice samples; new cells handle mic testing, 100-clip rapid-fire recording, and feature generation
-- **piper-sample-generator package** — updated to use the current `piper-sample-generator` Python package (`python -m piper_sample_generator`); the old `generate_samples.py` script is no longer in the upstream repo
-- **v2 ESPHome manifest schema** — generates `hey_frank.json` with the full v2 schema fields; v2 delivers better detection and fewer false positives than v1
-- **Split Colab / local workflow** — sample generation runs on Colab (piper-tts has no WSL2 wheel); augmentation and training run locally on your GPU
-- **WSL2 compatibility fixes** — soundfile-based audio decoding (replaces torchcodec), NumPy 2.0 shims, and RTX 5000 / Blackwell GPU workarounds
-- **IPA phoneme input** — `"hˈeɪ fɹˈæŋk˺"` for consistent hard-K pronunciation across all TTS voices
-- **Quality-of-life** — skip guards on all heavy steps, augmented clip preview cells, and tuned hyperparameters documented in the training history
-
-### Repo contents
-
-| File / Directory | Description |
-|---|---|
-| `hey_frank_training_notebook.ipynb` | Main training notebook |
-| `atom-echo-s3r.yaml` | ESPHome config for M5Stack Atom Echo S3R (basic voice assistant) |
-| `echo-pyramid.yaml` | ESPHome config for M5Stack Echo Pyramid + Atom S3R — custom RGB LED animations per assistant state (idle/listening/thinking/replying/error/muted), custom PNG images on the 128×128 display, includes hey_frank and hey_m5 models, selectable wake word sensitivity, touch gestures for volume and brightness |
-| `media/` | Custom 128×128 PNG assistant state images used by `echo-pyramid.yaml` |
-| `models/` | Pre-trained hey_frank and hey_m5 `.tflite` models + v2 ESPHome manifests |
-| `microWakeWord/microwakeword/` | Three patched upstream files (see [Attribution](#attribution-and-authorship)) |
-
-### Table of Contents
-
-- [Environment](#environment)
-- [Setup Instructions](#setup-instructions)
-- [Quick Start](#quick-start)
-- [Cell-by-Cell Guide](#cell-by-cell-guide)
-- [Attribution and Authorship](#attribution-and-authorship)
-- [Training History](#hey-frank--model-training-history)
-- [License](#license--data-notice)
+Forked from [malonestar/custom-micro-wake-word-model](https://github.com/malonestar/custom-micro-wake-word-model) with a complete local training pipeline for Mac (Apple Silicon) via Docker.
 
 ---
 
-## Environment
+## Using the Model
 
-This notebook is designed to run in two environments depending on the cell:
+Add to your ESPHome config:
 
-| Cells | Environment | Why |
-|---|---|---|
-| 1, 5–18 | **WSL2 on Windows** with an NVIDIA GPU | TensorFlow GPU support requires Linux; WSL2 gives you a Linux environment on Windows |
-| 2–4 | **Google Colab** (or any Linux GPU) | `piper-tts` and `piper-phonemize` have no stable Windows/WSL2 wheel |
+```yaml
+micro_wake_word:
+  models:
+    - model: github://erinnichols/micro-wake-word-operator/models/operator.json@main
+      id: ethel
+```
 
-### WSL2 Setup Notes
+Both `operator.json` and `operator.tflite` are included in this repository.
+**Note:** `operator` is a reserved keyword in C++ / esphome, so I named mine ethel.
 
-- **WSL2** (Windows Subsystem for Linux 2) runs a real Linux kernel inside Windows. It has full CUDA/GPU passthrough for NVIDIA cards.
-- Tested on: Windows 11, RTX 5070 Ti Laptop GPU (12 GB VRAM), Python 3.12 in a virtualenv
-- You need: WSL2 with Ubuntu, CUDA-capable GPU driver, Python 3.12 venv with dependencies installed
-- WSL2 default memory cap is 16 GB — if you have 32 GB RAM, set `memory=28GB` in `%USERPROFILE%\.wslconfig`
+### Model stats
+
+| Metric | Value |
+|--------|-------|
+| Wake word | "operator" |
+| Best FA/hr | 0.103 |
+| Recall | 96.5% |
+| Training samples | 50,000 (synthetic TTS) |
+| Model size | ~61 KB |
+| Architecture | MixedNet |
 
 ---
 
-## Setup Instructions
+## Training Your Own Model
 
-### 1. Clone this repo
+This repo includes a complete, reproducible training pipeline that runs locally on Mac via Docker — no GPU required, no Colab timeouts.
+
+### Prerequisites
+
+- Docker Desktop (tested on Mac Apple Silicon, linux/amd64 emulation)
+- ~20GB free disk space
+- A HuggingFace account and [access token](https://huggingface.co/settings/tokens) (free, needed for dataset downloads)
+- Amphetamine or `caffeinate` to prevent Mac sleep during long runs
+
+### Quick start
 
 ```bash
-git clone https://github.com/inventr-io/custom-micro-wake-word-model
-cd custom-micro-wake-word-model
+git clone https://github.com/erinnichols/micro-wake-word-operator
+cd micro-wake-word-operator
+docker compose build
+docker compose run microwakeword-trainer python3 train_operator.py
 ```
 
-### 2. Clone the microWakeWord repo
+Training takes approximately 6-8 hours on Apple Silicon (CPU emulation). The script is fully idempotent — if it crashes, just rerun and it picks up where it left off.
 
-Clone the upstream microWakeWord repo into the **same parent directory** as this repo:
+### What the script does
 
-```bash
-cd ..
-git clone https://github.com/kahrendt/microWakeWord
-cd custom-micro-wake-word-model
-```
+1. Downloads the LibriTTS-R piper TTS model
+2. Generates 50,000 synthetic "operator" voice clips across 904 speakers
+3. Generates confusable negative samples (opera, operate, liberator, etc.)
+4. Downloads augmentation data (MIT RIRs, AudioSet, FMA)
+5. Downloads pre-built negative datasets (speech, dinner party, ambient)
+6. Generates spectrogram features for all datasets
+7. Trains a MixedNet model for 45,000 steps in two phases
+8. Exports `operator.tflite` and `operator.json`
 
-Your directory structure should look like:
-```
-parent-dir/
-├── custom-micro-wake-word-model/   ← this repo
-└── microWakeWord/                  ← upstream repo
-```
+### Compatibility fixes included
 
-> **Note:** Cell 1 in the notebook also does this clone automatically if `microWakeWord/` doesn't already exist next to the notebook.
+The training pipeline includes several patches for running on modern Python/numpy environments that the upstream notebook doesn't address:
 
-### 3. Apply the local modifications
+- **PyTorch 2.6**: `torch.load()` `weights_only` default change — patched in `piper-sample-generator`
+- **numpy 2.x**: `np.trapz` removed → `np.trapezoid`; `.numpy()` calls on numpy arrays — patched in `microwakeword` source
+- **torchaudio**: `set_audio_backend` removed in newer versions — no-op patched
+- **microwakeword pip package**: Missing `audio` submodule — installs from OHF-Voice source instead
+- **Docker memory**: Validation spikes to ~28GB; requires Docker Desktop memory limit ≥ 28GB
 
-This repo includes three patched files in `microWakeWord/microwakeword/`. From inside this repo, copy them over the upstream originals:
+### Confusable phrases
 
-```bash
-# From inside custom-micro-wake-word-model/:
-cp microWakeWord/microwakeword/audio/clips.py  ../microWakeWord/microwakeword/audio/clips.py
-cp microWakeWord/microwakeword/train.py        ../microWakeWord/microwakeword/train.py
-cp microWakeWord/microwakeword/test.py         ../microWakeWord/microwakeword/test.py
-```
+The model was trained to reject these phonetically similar phrases:
 
-See [Attribution and Authorship](#attribution-and-authorship) below for details on what each file fixes and why.
-
----
-
-## Quick Start
-
-1. Run **Cell 1** in Jupyter (in WSL2), restart the kernel
-2. Run **Cells 2–4** in **Google Colab** (sample generation):
-   - Cell 2: install piper-sample-generator, verify pronunciation
-   - Cell 3: generate full positive sample set
-   - Cell 4: generate confusable negative samples
-3. Download `generated_samples/` and `confusable_negatives/` from Colab and place them in your WSL2 working directory
-4. Run **Cells 5–9** in Jupyter (in WSL2) to download data, configure augmentation, and generate TTS spectrogram features
-5. *(Optional)* Run **Cells 10–12** to test your mic, record real voice samples in bulk, and generate their features
-6. Run **Cells 13–15** to generate confusable features and write the training config
-7. Run **Cell 16** training via the **CLI** (recommended — see cell notes)
-8. Run **Cell 17** to locate your `.tflite` and write the ESPHome manifest
-
----
-
-## Cell-by-Cell Guide
-
-### Cell 0 — Introduction / Quick-Edit Constants Reference
-
-Markdown cell. Summarizes the key configurable parameters in one table so you don't have to hunt through each cell:
-
-| Setting | Default | Notes |
-|---|---|---|
-| `target_word` | `"hˈeɪ fɹˈæŋk˺"` | IPA phoneme input — forces consistent hard K |
-| `MAX_SAMPLES` | `50_000` | Reduce to `25_000` if disk space is tight |
-| `PIPER_BATCH` | `256` | Reduce to `128` if you get CUDA OOM during sample generation |
-| `CONFUSABLE_SAMPLES_PER_PHRASE` | `2000` | Adjust based on disk space and desired data volume |
-| `batch_size` (YAML) | `256` | Reduce to `128` if you get OOM during training |
-| Training steps | `[20000, 15000, 10000]` | Use `[5000]` for a quick sanity-check run |
-| `target_minimization` | `0.3` FA/hr | Lower = stricter false accept control |
-
----
-
-### Cell 1 — Install microWakeWord *(run in WSL2)*
-
-Clones the [microWakeWord](https://github.com/kahrendt/microWakeWord) repo and installs it as an editable package. Skips the clone if the directory already exists so re-runs are safe.
-
-> **Tip:** You **must restart the kernel** after this cell before running anything else.
-
----
-
-### Cell 2 — Install piper-sample-generator + Single Preview Sample *(run in Google Colab)*
-
-Installs all TTS sample generation dependencies: `piper-tts`, `piper-sample-generator` (as a Python package), and the `monotonic_align` C extension built from the Piper source repo. Then generates **one sample WAV** to verify pronunciation before committing to a full run.
-
-The generator is invoked as `python -m piper_sample_generator` — the old `generate_samples.py` script is no longer included in the upstream repo.
-
-This notebook uses `--phoneme-input` with the IPA string `"hˈeɪ fɹˈæŋk˺"` rather than plain text. The `˺` (no-audible-release) marker forces piper to consistently close the final /k/, preventing the model from learning to trigger on "hey fran" nearly as readily as "hey frank". Without it, the hard K can be dropped or softened across thousands of short clips, and that distortion bakes into your training data.
-
-To use plain text instead, set `target_word = "hey frank"` and remove the `--phoneme-input` flag. Be cautious with words ending in hard stops (k, t, p) — piper can drop or soften them in short clips.
-
-> **Tip:** Edit `target_word` at the top of this cell. If the preview sounds unclear or unnatural, try a phonetic spelling first (e.g. `'hey fraenk'`) to diagnose the issue, then translate to IPA.
->
-> **Note:** Run Cells 2–4 in Google Colab — `piper-tts` does not have a stable WSL2 wheel. Download the output folders and copy them to your WSL2 working directory.
-
----
-
-### Cell 3 — Generate Full Training Sample Set *(run in Google Colab)*
-
-Generates `MAX_SAMPLES` (default 50,000) TTS voice clips using the libritts multi-speaker model. More speaker variety = more robust model.
-
-Approximate times on a Colab T4:
-- 10k samples: ~5 min
-- 25k samples: ~12 min
-- 50k samples: ~25 min
-
-> **Tip:** Experiment with `--noise-scale` and `--noise-scale-w` flags (shown in cell comments) to vary pronunciation timing and style.
->
-> **Note:** After this cell completes, download `generated_samples/` and copy it into your WSL2 working directory.
-
----
-
-### Cell 4 — Generate Confusable Negative Samples *(run in Google Colab)*
-
-Generates TTS clips of phonetically similar phrases that must **not** trigger your wake word. These become high-penalty hard negatives during training, teaching the model to discriminate fine-grained phonetic differences.
-
-Edit `confusable_phrases` for your specific wake word. Uses plain text (no `--phoneme-input`) so piper generates natural variation in how similar-sounding words are pronounced.
-
-> **Note:** Download `confusable_negatives/` from Colab and copy it to your WSL2 working directory alongside `generated_samples/`.
-
----
-
-### Cell 5 — Download Augmentation Audio *(run in WSL2)*
-
-Downloads three audio sources used for augmentation during training:
-- **MIT Room Impulse Responses** — simulates rooms/reverb
-- **AudioSet** — real-world ambient sounds and speech (~18k clips, streamed)
-- **Free Music Archive (xsmall)** — music background noise
-
-All downloads are skipped automatically if the files already exist.
-
-> **Note:** Per the microWakeWord project, these datasets have mixed licenses. Any model trained with this data should be considered suitable for **non-commercial personal use only**.
->
-> **Tip:** `audioset_16k/` and `fma_16k/` are each ~500 MB. This cell may take several minutes on first run.
-
----
-
-### Cell 6 — Download Negative Datasets *(run in WSL2)*
-
-Downloads pre-generated spectrogram features from the microWakeWord project for negative examples (things that are *not* the wake word):
-- `speech` — general speech (hardest negatives)
-- `dinner_party` — multi-speaker conversation + background noise
-- `no_speech` — ambient sounds with no speech
-- `dinner_party_eval` — held-out eval set for the FA/hr metric
-
-Skip guard included — safe to re-run.
-
----
-
-### Cell 7 — Configure Augmentation Pipeline *(run in WSL2)*
-
-Defines how training clips are augmented before being fed to the model. Augmentation makes the model robust to real-world conditions.
-
-Tuned settings vs. the original notebook:
-- `remove_silence=True` — cleaner clips
-- Wider jitter range (`0.10–0.50s`) — more positional variety
-- Higher background SNR ceiling (`20 dB`) — includes softer backgrounds
-- `GainTransition` added at `p=0.25` — simulates volume changes over time
-- Stronger `AddBackgroundNoise` (`p=0.85`) and `RIR` (`p=0.60`)
-
-> **Tip:** If augmented previews sound completely unintelligible, raise `background_min_snr_db` toward `0` or lower `AddBackgroundNoise` probability.
-
----
-
-### Cell 8 — Generate Spectrogram Features (Positive Samples) *(run in WSL2)*
-
-Converts all augmented positive clips into 40-band spectrogram features — the actual format the model trains on. Generates three splits:
-
-| Split | `slide_frames` | `repeat` | Purpose |
-|---|---|---|---|
-| training | 10 | 3 | 3× augmented versions per clip |
-| validation | 10 | 1 | Single augmented version |
-| testing | 1 | 1 | Simulates real streaming inference |
-
-Existing splits are skipped automatically. Partial mmaps are detected, cleaned up, and regenerated.
-
-> **Tip:** At 50k samples on a GPU this takes roughly 20–40 minutes. Don't close Jupyter during this step.
-
----
-
-### Cell 9 — Preview Augmented Sample *(run in WSL2)*
-
-Augments one random clip and plays it back. Run this a few times for variety. You should still be able to hear "hey frank" through the noise/reverb — muffled is fine, unintelligible is too much.
-
----
-
-### Cell 10 — Test Microphone *(run in WSL2)*
-
-Records a single 2-second clip from your microphone and plays it back. Run this before bulk recording (Cell 11) to verify your mic is working and that the audio level and timing feel right.
-
-Uses WSL2's PulseAudio bridge (`/mnt/wslg/PulseServer`) for mic access. Lists available audio devices so you can set `DEVICE` if the default doesn't work.
-
----
-
-### Cell 11 — Record Real Voice Samples *(run in WSL2)*
-
-Rapid-fire batch recording session that runs `N_RECORDINGS` (default 100) back-to-back cycles of:
-- **3-second countdown** with on-screen prompt
-- **2-second recording window** ("SPEAK NOW")
-- Brief gap before the next clip
-
-Keeps a single mic stream open for the whole session to avoid PulseAudio re-acquire failures. Clips are saved to `real_recordings/` with a session timestamp. Review and delete bad takes before running Cell 12.
-
-> **Tip:** Aim for 100–200 clips minimum. Vary your delivery: distance from mic, speaking speed, room, ambient noise level. Real recordings substantially improve real-world robustness vs. TTS-only training.
-
----
-
-### Cell 12 — Generate Spectrogram Features (Real Recordings) *(run in WSL2)*
-
-Converts `real_recordings/` into spectrogram mmaps using the same augmentation pipeline as Cell 8. Real clips are short, so the training split uses `repetition=5` to boost the training set size.
-
-Idempotent — already-generated splits are skipped automatically.
-
----
-
-### Cell 13 — Generate Spectrogram Features (Confusable Negatives) *(run in WSL2)*
-
-Runs the same augmentation and spectrogram pipeline on `confusable_negatives/`, outputting to `confusable_features/`. These are used as high-penalty negatives during training.
-
-Idempotent — already-generated splits are skipped automatically.
-
----
-
-### Cell 14 — Preview Augmented Confusable Sample *(run in WSL2)*
-
-Spot-checks the confusable negative pipeline. You should hear something like "hey fran" or "hey finn" — clearly **not** "hey frank". If a clip sounds identical to the wake word, that phrase may need rephrasing.
-
----
-
-### Cell 15 — Write Training Configuration YAML *(run in WSL2)*
-
-Writes `training_parameters.yaml`. Automatically detects whether `confusable_features/` and `real_recording_features/` exist and includes them in the config only if present.
-
-Key parameters to know:
-
-| Parameter | Value | Notes |
-|---|---|---|
-| `training_steps` | `[25000, 20000]` | 45k total; use `[5000]` for a quick test |
-| `negative_class_weight` | `[40, 50]` | **Most impactful knob for false accepts** — increase if too many FAs |
-| `batch_size` | `256` | Tuned for 12 GB VRAM — reduce to `128` if OOM |
-| `minimization_metric` | `ambient_false_positives_per_hour` | Trainer must beat `target_minimization` before maximizing recall |
-| `target_minimization` | `0.4` | Acceptable false accepts per hour |
-
-Batch composition (when real recordings and confusables are both present):
-
-| Dataset | Weight | Notes |
-|---|---|---|
-| TTS positives (`generated_augmented_features`) | 8.0 | ~15% |
-| Real recordings (`real_recording_features`) | 8.0 | ~15% — omitted if not present |
-| `speech` | 10.0 | ~19% |
-| `dinner_party` | 15.0 | ~28% — primary source of TV/ambient FAs |
-| `no_speech` | 5.0 | ~9% |
-| Confusables (`confusable_features`) | 8.0 | ~15% — high penalty (5.0); omitted if not present |
-
----
-
-### Cell 16 — Train the Model *(run in WSL2)*
-
-Launches the training run.
-
-#### Recommended: run via CLI (not Jupyter)
-
-For a long training run, the Jupyter kernel may time out or get killed by the OS. **It's more reliable to run training from the WSL2 command line.** The cell includes the CLI command as a comment block.
-
-**Using `tmux` + `nohup` (recommended):**
-
-```bash
-# Start or attach to a persistent session
-tmux new -s training
-# or: tmux attach -t training
-
-export XLA_FLAGS='--xla_gpu_autotune_level=0'
-export PATH="$HOME/wakeword-env/lib/python3.12/site-packages/nvidia/cuda_nvcc/bin:$PATH"
-
-nohup python3 -m microwakeword.model_train_eval \
-  --training_config "training_parameters.yaml" \
-  --train 1 --restore_checkpoint 0 \
-  ... > training.log 2>&1 &
-
-tail -f training.log
-
-# Detach (leave running): Ctrl+B then D
-# Reattach later: tmux attach -t training
-```
-
-> **Tip — Fresh start vs. resume:**
-> - `--restore_checkpoint 0` — start fresh (use this if `trained_models/hey_frank/` doesn't exist yet)
-> - `--restore_checkpoint 1` — resume from the last saved checkpoint
-> - If you get `ValueError: model already exists`, delete `trained_models/hey_frank/` and re-run with `--restore_checkpoint 0`
-
-**RTX 5000-series / Blackwell GPU notes:**
-- The bundled `ptxas 12.9` is prepended to `$PATH` to override the system `ptxas 12.4` (which doesn't support Compute Capability 12.0)
-- `XLA_FLAGS='--xla_gpu_autotune_level=0'` disables the XLA autotuner, which can fail on new GPU architectures
-
-Watch the `estimated false positives per hour` metric at each 500-step validation checkpoint — you want it trending toward your `target_minimization` by the end of Phase 1.
-
----
-
-### Cell 17 — Locate Model + Write ESPHome Manifest *(run in WSL2)*
-
-After training completes, this cell:
-1. Finds the quantized streaming `.tflite` model at `trained_models/hey_frank/tflite_stream_state_internal_quant/`
-2. Reports the file size
-3. Writes `hey_frank.json` using the **v2 ESPHome manifest schema**
-
-The v2 schema adds fields that improve detection reliability compared to v1:
-
-```json
-{
-  "version": 2,
-  "micro": {
-    "probability_cutoff": 0.50,
-    "feature_step_size": 10,
-    "sliding_window_size": 5,
-    "tensor_arena_size": 30000,
-    "minimum_esphome_version": "2024.7.0"
-  }
-}
-```
-
-> **Tip:** Set `probability_cutoff` based on the cutoff table printed at the end of training. A value around `0.80–0.90` is typical — higher = more confident threshold required to trigger, so fewer false accepts but potentially lower recall.
-
-Copy both `hey_frank.tflite` and `hey_frank.json` to your ESPHome configuration directory.
-
-See: [ESPHome micro_wake_word docs](https://esphome.io/components/micro_wake_word) | [Model repo examples](https://github.com/esphome/micro-wake-word-models/tree/main/models/v2)
-
----
-
-### Cell 18 — Visualize Training Metrics with TensorBoard *(run in WSL2)*
-
-Launches TensorBoard for the most recently trained model's logs directory. Can be run mid-training to monitor live progress — logs are written incrementally.
-
-Open `http://localhost:6006` in your browser. The `ambient_false_positives_per_hour` curve under SCALARS shows convergence most clearly.
-
-Interrupt the cell to stop the TensorBoard server.
-
----
-
-## Attribution and Authorship
-
-This notebook is based on [`basic_training_notebook.ipynb`](https://github.com/kahrendt/microWakeWord/blob/main/notebooks/basic_training_notebook.ipynb) from the [microWakeWord](https://github.com/kahrendt/microWakeWord) project by [@kahrendt](https://github.com/kahrendt).
-
-**I did not write the original code.** All credit for the microWakeWord framework, training pipeline, model architecture, and negative datasets belongs to the upstream authors.
-
-What this notebook adds on top of the original:
-- Wake word configured for `"hey frank"`
-- Practical improvements for running on a **local Windows PC with an NVIDIA GPU via WSL2**
-- Windows/Linux compatibility fixes (see below)
-- Confusable negative sample generation pipeline
-- Real microphone recording and feature generation pipeline
-- Tuned hyperparameters for better false-accept behavior
-- Quality-of-life additions: skip guards, error handling, ESPHome manifest output
-- Updated addresses and download methods for augmentation resources and negative datasets where needed
-
-### Local Modifications to microWakeWord
-
-Three files have been patched from upstream and are included in this repo at `microWakeWord/microwakeword/`. See [Setup Instructions](#setup-instructions) above for how to apply them.
-
----
-
-#### `microwakeword/audio/clips.py`
-**Problem:** HuggingFace `datasets` uses `torchcodec` for audio decoding by default,
-which has no Windows wheel and fails in WSL2.
-
-**Fix:** Switched to `decode=False` + manual decoding via `soundfile` and `librosa`.
-- Added `import io`, `import soundfile as sf`
-- Changed `datasets.Audio()` → `datasets.Audio(decode=False)`
-- Added `_decode_audio(audio_info, target_sr)` method that decodes manually,
-  handles stereo→mono, and resamples if needed
-- All `clip["audio"]["array"]` accesses replaced with `self._decode_audio(clip["audio"])`
-
-> **Note:** This change is safe to run on Colab/Linux too — soundfile works everywhere.
-
----
-
-#### `microwakeword/test.py`
-**Problem:** NumPy 2.0 renamed `np.trapz` → `np.trapezoid`. Calling `np.trapz` raises
-a deprecation warning or error depending on version.
-
-**Fix:** Added compatibility shim:
 ```python
-_trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+confusable_phrases = [
+    "operate",
+    "opera", 
+    "operative",
+    "operators",
+    "operate her",
+    "liberator",
+    "decorator",
+    "alligator",
+    "narrate her",
+    "operate now",
+]
 ```
 
 ---
 
-#### `microwakeword/train.py`
-**Problem 1:** Same `np.trapz` → `np.trapezoid` rename as above.
+## Hardware context
 
-**Fix:** Same compatibility shim applied in `validate_nonstreaming`.
+This model was developed for use with the [Waveshare ESP32-S3 AI Smart Speaker](https://www.waveshare.com/esp32-s3-audio-board.htm) running ESPHome, as part of a Home Assistant voice satellite fleet. The satellites use the [sw3Dan/waveshare-s2-audio_esphome_voice](https://github.com/sw3Dan/waveshare-s2-audio_esphome_voice) ESPHome configuration.
 
-**Problem 2:** `.numpy()` calls on metric values failed when values were plain
-Python/NumPy scalars rather than TensorFlow tensors (version-dependent behavior).
-
-**Fix:** Added `hasattr(x, "numpy")` guards before all `.numpy()` calls on
-`fp`, `tp`, `fn` metric values in `validate_nonstreaming`.
+The wake word "operator" is styled after a 1960s telephone switchboard operator persona.
 
 ---
 
-## hey frank — Model Training History
+## Credits
 
-### v2 — baseline (no confusables)
-
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[40, 50]` |
-| `dinner_party` sampling / penalty | 10.0 / 1.5 |
-| `speech` penalty | 2.0 |
-| Confusable negatives | ❌ |
-| Positive samples | Standard text input |
-| `target_minimization` | 0.5 FA/hr |
-| Training phases | `[30000, 20000]` |
-| **Result** | Heavy false positives on similar phrases + ambient |
+- Upstream notebook: [malonestar/custom-micro-wake-word-model](https://github.com/malonestar/custom-micro-wake-word-model)
+- microWakeWord framework: [OHF-Voice/micro-wake-word](https://github.com/OHF-Voice/micro-wake-word)
+- TTS sample generation: [rhasspy/piper-sample-generator](https://github.com/rhasspy/piper-sample-generator)
+- ESPHome microWakeWord docs: [esphome.io/components/micro_wake_word](https://esphome.io/components/micro_wake_word/)
 
 ---
 
-### v3 — confusable negatives added ✅
+## License
 
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[50, 60]` |
-| `dinner_party` sampling / penalty | 10.0 / 2.0 |
-| `speech` penalty | 2.5 |
-| Confusable negatives | ✅ 13 phrases, sampling 8.0, penalty 5.0 |
-| Positive samples | IPA phoneme input `hˈeɪ fɹˈæŋk˺` |
-| `target_minimization` | 0.3 FA/hr |
-| Training phases | `[20000, 15000, 10000]` |
-| **Result** | **0.414 FA/hr, 97% recall — no confusable triggers, strong ambient robustness** |
-
----
-
-### v4 — overcorrected ambient penalty
-
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[60, 75]` ← too aggressive |
-| `dinner_party` sampling / penalty | 15.0 / 3.0 ← boosted |
-| `speech` penalty | 2.5 |
-| Confusable negatives | ✅ same as v3 |
-| Positive samples | IPA phoneme input `hˈeɪ fɹˈæŋk˺` |
-| `target_minimization` | 0.3 FA/hr |
-| Training phases | `[25000, 20000]` |
-| **Result** | 0.620 FA/hr, 94.5% recall — worse than v3 on both metrics |
-
----
-
-### v5 — refined weights + expanded dataset ✅ deployed
-
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[50, 60]` ← reverted from v4 |
-| `positive_class_weight` | `[2, 2]` ← raised from v3's `[1, 1]` |
-| `dinner_party` sampling / penalty | 15.0 / 3.0 ← keeping v4 boost |
-| `speech` penalty | 2.5 |
-| Confusable negatives | ✅ 13 phrases, sampling 8.0, penalty 5.0 |
-| Positive samples | IPA `hˈeɪ fɹˈæŋk˺`, sampling 8.0, penalty 2.0 |
-| AudioSet clips | 18,683 (full balanced set) |
-| `target_minimization` | 0.4 FA/hr ← relaxed from v3's 0.3 |
-| Training phases | `[25000, 20000]` |
-| **Result** | **0.103 FA/hr best min, 97.58% recall — best hey frank result** |
-
----
-
-## Training History (hey_m5)
-
-### hey_m5_v1 — initial model
-
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[40, 50]` |
-| `positive_class_weight` | `[2, 2]` |
-| `dinner_party` sampling / penalty | 15.0 / 3.0 |
-| `speech` penalty | 2.5 |
-| Confusable negatives | ✅ 5 phrases — hey em, hey five, em five, hey emma, hey emily |
-| Confusable sampling / penalty | 8.0 / 5.0 |
-| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k TTS |
-| `target_minimization` | 0.4 FA/hr |
-| Training phases | `[25000, 20000]` |
-| **Result** | **0.000 FA/hr @ 97.1% recall (cutoff 0.62 / uint8 158), 0.187 FA/hr @ 97.9% recall (cutoff 0.33 / uint8 84), 0.375 FA/hr @ 98.4% recall (cutoff 0.18 / uint8 46) — false triggers on "hey emma hi", "hey i'm tired"** |
-| **ESPHome cutoffs** | Slightly sensitive = 84 (0.187 FA/hr), Moderately = 46 (0.375 FA/hr), Very = 26 |
-
----
-
-### hey_m5_v2 — expanded confusables ⚠️ overcorrected
-
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[40, 50]` |
-| `positive_class_weight` | `[2, 2]` |
-| `dinner_party` sampling / penalty | 15.0 / 3.0 |
-| `speech` penalty | 2.5 |
-| Confusable negatives | ✅ 10 phrases — v1 set + hey emma hi, hey emily hi, hey i'm tired, hey i'm fired, i'm fired |
-| Confusable sampling / penalty | 8.0 / 5.0 |
-| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k TTS |
-| `target_minimization` | 0.4 FA/hr |
-| Training phases | `[25000, 20000]` |
-| **Result** | **0.187 FA/hr @ 92.7% recall (cutoff 0.58 / uint8 148) — ~5% recall loss vs v1 at every operating point; i'm tired/fired confusables too phonetically close to positive** |
-| **ESPHome cutoffs** | Slightly sensitive = 148 (0.187 FA/hr), Moderately = 120 (0.375 FA/hr), Very = 64 (0.750 FA/hr) |
-
----
-
-### hey_m5_v3 — trimmed confusables + real recordings
-
-| Parameter | Value |
-|---|---|
-| `negative_class_weight` | `[40, 50]` |
-| `positive_class_weight` | `[2, 2]` |
-| `dinner_party` sampling / penalty | 15.0 / 3.0 |
-| `speech` penalty | 2.5 |
-| Confusable negatives | ✅ 8 phrases ← dropped hey i'm tired, hey i'm fired, hey emma hi; kept hey emily hi, hey i'm, i'm fired |
-| Confusable sampling / penalty | 8.0 / 5.0 |
-| Positive samples | IPA `hˈeɪ \| ˈɛmfˈaɪv`, 50k TTS + 217 real recordings |
-| Real recordings sampling / penalty | 8.0 / 2.0 |
-| `target_minimization` | 0.4 FA/hr |
-| Training phases | `[25000, 20000]` |
-| **Result** | **Best: 0.000 FA/hr @ 97.81% recall (validation). Test: 0.000 FA/hr @ 94.8% recall (cutoff 0.47 / uint8 120), 0.187 FA/hr @ 95.0% recall (cutoff 0.43 / uint8 110), 0.375 FA/hr @ 95.8% recall (cutoff 0.29 / uint8 74), 0.750 FA/hr @ 97.1% recall (cutoff 0.07 / uint8 18)** |
-| **ESPHome cutoffs** | Slightly sensitive = 110 (0.187 FA/hr), Moderately = 74 (0.375 FA/hr), Very = 18 (0.750 FA/hr) |
-
----
-
-## License / Data Notice
-
-The negative training datasets (AudioSet, FMA, MIT RIRs) and the microWakeWord framework are subject to their respective licenses. Custom models trained with this data should be treated as suitable for **non-commercial personal use only**.
-
-All framework code is by [@kahrendt](https://github.com/kahrendt) and contributors to [microWakeWord](https://github.com/kahrendt/microWakeWord).
+Model trained on data with mixed licenses. Suitable for **non-commercial personal use only** per the microWakeWord project's dataset licensing terms.

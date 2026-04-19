@@ -2,17 +2,15 @@
   "type": "micro",
   "wake_word": "operator",
   "author": "erinnichols",
-  "website": "https://github.com/erinnichols",
+  "website": "https://github.com/erinnichols/micro-wake-word-operator",
   "model": "operator.tflite",
-  "trained_languages": [
-    "en"
-  ],
-  "version": 1,
+  "trained_languages": ["en"],
+  "version": 2,
   "micro": {
-    "probability_cutoff": 0.5,
+    "probability_cutoff": 0.85,
     "feature_step_size": 10,
     "sliding_window_size": 5,
-    "tensor_arena_size": 30000,
+    "tensor_arena_size": 37000,
     "minimum_esphome_version": "2024.7.0"
   }
 }

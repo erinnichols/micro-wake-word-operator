@@ -71,7 +71,7 @@ def validate_nonstreaming(config, data_processor, model, test_set):
     metrics["average_viable_recall"] = 0
 
     _fp = result["fp"]
-    test_set_fp = _fp.numpy() if hasattr(_fp, "numpy") else _fp
+    test_set_fp = np.array(result["fp"])
 
     if data_processor.get_mode_size("validation_ambient") > 0:
         (

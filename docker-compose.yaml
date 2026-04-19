@@ -1,0 +1,16 @@
+services:
+  microwakeword-trainer:
+    build: .
+    image: microwakeword-trainer
+    container_name: microwakeword-trainer
+    volumes:
+      - .:/workspace
+    ports:
+      - "6006:6006"
+    stdin_open: true
+    tty: true
+    command: python3 train_operator.py
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+    env_file:
+      - .env
